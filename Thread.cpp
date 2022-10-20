@@ -7,6 +7,9 @@
 #include <ctime>
 #include <vector>
 
+#include <condition_variable>>
+#include <random>
+
 using namespace std;
 
 class ThreadClass
@@ -66,7 +69,7 @@ public:
 };
 
 mutex myMutex;
-//recursive_mutex myRecursiveMutex;
+//recursive_mutex myRecursiveMutex; // wikipedia
 
 void PrintVector(vector<int> VectorToPrint)
 {
@@ -116,32 +119,122 @@ void FillVectorBySize(vector<int>& VectorToFill, int Value, int sizeVector)
 	//this_thread::sleep_for(chrono::milliseconds(1000));
 }
 
+int GetRandomInRange(const int min, const int max)
+{
+	static default_random_engine gen(static_cast<unsigned>(chrono::system_clock::now().time_since_epoch().count()));
+	uniform_int_distribution<int> distribution(min, max);
+
+	return distribution(gen);
+}
+
+condition_variable CV_FillVector;
+//condition_variable_any
+//condition_variable CV_ReadVector;
+bool EndConsume = false;
+
+void Consume(int& value, vector<int>& Vector, int neededInt, mutex& locker)
+{
+	unique_lock<mutex> lock(locker);
+
+	bool bIsConsumeFill = false;
+	while (!bIsConsumeFill)
+	{
+		//CV_FillVector.wait_until(lock, chrono::high_resolution_clock::now() + chrono::milliseconds(1000));
+		CV_FillVector.wait(lock);
+		if (value < 10)
+		{
+			unsigned int i = 0;
+			while (i < Vector.size())
+			{
+				if (Vector[i] == neededInt)
+				{
+					value++;
+					Vector.erase(Vector.begin() + i);
+					i--;
+					printf("Hey i found what i want - %d", neededInt);
+					printf("\n");
+					if (value > 10)
+					{
+						bIsConsumeFill = true;
+					}
+				}
+				i++;
+			}
+			Vector.clear();
+			//CV_ReadVector.notify_all(); //all threads
+		}
+	}
+	EndConsume = true;
+}
+
+void Produce(vector<int>& VectorToFill, mutex &locker)
+{
+	unique_lock<mutex> UL(locker, defer_lock);
+
+	while (true)
+	{
+		this_thread::sleep_for(chrono::milliseconds(100));
+		int randNumber = GetRandomInRange(0, 10);
+
+		UL.lock();
+		VectorToFill.push_back(randNumber);
+		UL.unlock();
+		if (VectorToFill.size() > 50)
+		{
+			CV_FillVector.notify_one();
+		}
+	}
+}
+
+int FutureValue1;
+void GenerateValue()
+{
+	int i = 0;
+	while (i < 2)
+	{
+		printf("work Second GenerateValue \n");
+		this_thread::sleep_for(chrono::milliseconds(1000));
+		i++;
+	}
+	FutureValue1 = GetRandomInRange(0, 100);
+}
+
 int main()
 {
-	chrono::time_point<chrono::steady_clock> StartClock, EndClock;
-	chrono::duration<float> DurationClock;
-	StartClock = chrono::high_resolution_clock::now();
-
-	srand(static_cast<unsigned int>(time(0)));
+	//srand(static_cast<unsigned>(time(0))); //bad work in thread
 
 	vector<int> myVector;
+	vector<thread> threads;
 
-	thread FillVectorThread([&]()
+	int SuccessConsumeCout = 0;
+
+	mutex m;
+	mutex& lockerFormyVector = m;
+
+	for (int i = 0; i < 2; i++)
 	{
-			FillVectorBySize(myVector, 55, 5);
-	});
-
-	thread FillVectorThread2([&]()
+		threads.push_back(thread([&]()
 		{
-			RandomFillVectorBySize(myVector, 5);
-		});
+			Produce(myVector, lockerFormyVector);
+		}));
+	}
 
-	FillVectorThread.join();
-	FillVectorThread2.join();
+	for (thread& t : threads)
+	{
+		t.detach();
+	}
+	thread ConsumeThread(Consume, ref(SuccessConsumeCout), ref(myVector), 5, ref(lockerFormyVector));
 
-	EndClock = chrono::high_resolution_clock::now();
-	DurationClock = EndClock - StartClock;
-	printf("%f", DurationClock.count());
+	while (!EndConsume)
+	{
+		printf("%d ", SuccessConsumeCout);
+
+		this_thread::sleep_for(chrono::milliseconds(100));
+	}
+
+	printf("\n");
+	printf("End work %d ", SuccessConsumeCout);
+	ConsumeThread.join();
 
 	cout << endl;
 	//system("pause");
