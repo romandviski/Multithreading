@@ -3,6 +3,10 @@
 #include <string>
 #include <chrono>
 
+#include <mutex>
+#include <ctime>
+#include <vector>
+
 using namespace std;
 
 class ThreadClass
@@ -61,38 +65,86 @@ public:
 
 };
 
+mutex myMutex;
+//recursive_mutex myRecursiveMutex;
+
+void PrintVector(vector<int> VectorToPrint)
+{
+	for (int i : VectorToPrint)
+	{
+		printf("%d ", i);
+	}
+	printf("\n");
+}
+
+void RandomFillVectorBySize(vector<int> &VectorToFill, int sizeVector)
+{
+	//myMutex.try_lock();
+	//unique_lock<mutex> myUnique_lock(myMutex, defer_lock);
+	myMutex.lock();
+
+	VectorToFill.clear();
+	for (int i = 0; i < sizeVector; i++)
+	{
+		int randNumber = rand() % 100;
+		VectorToFill.push_back(randNumber);
+		printf("%d ", randNumber);
+		this_thread::sleep_for(chrono::milliseconds(300));
+	}
+	printf("\n");
+
+	myMutex.unlock();
+}
+
+void FillVectorBySize(vector<int>& VectorToFill, int Value, int sizeVector)
+{
+	//this_thread::sleep_for(chrono::milliseconds(1000));
+
+	{
+		lock_guard<mutex> muGuard(myMutex);
+
+		VectorToFill.clear();
+		for (int i = 0; i < sizeVector; i++)
+		{
+			VectorToFill.push_back(Value + 1);
+			printf("%d ", Value + i);
+			this_thread::sleep_for(chrono::milliseconds(300));
+		}
+		printf("\n");
+
+	}
+	//this_thread::sleep_for(chrono::milliseconds(1000));
+}
+
 int main()
 {
-	cout << "Core thread number - " << thread::hardware_concurrency() << endl;
-	cout << "Sleep - 0,1 s" << endl;
-	this_thread::sleep_for(chrono::milliseconds(100));
-	cout << "Main thread ID - " << this_thread::get_id() << endl;
+	chrono::time_point<chrono::steady_clock> StartClock, EndClock;
+	chrono::duration<float> DurationClock;
+	StartClock = chrono::high_resolution_clock::now();
 
-	ThreadClass myThreadClass;
-	int Result;
-	int SecondResult = 5;
+	srand(static_cast<unsigned int>(time(0)));
 
-	thread ThreadObjectWithLambda([&Result, &myThreadClass]()
+	vector<int> myVector;
+
+	thread FillVectorThread([&]()
 	{
-		Result = myThreadClass.Sum(5, 7);
+			FillVectorBySize(myVector, 55, 5);
 	});
 
-	thread ThreadObjectWithLambda2([&]()
-	{
-		myThreadClass.Assignment(SecondResult);
-	});
+	thread FillVectorThread2([&]()
+		{
+			RandomFillVectorBySize(myVector, 5);
+		});
 
-	thread ThreadObjectWithLambda3(&ThreadClass::GreatJobWithoutParametr, myThreadClass);
+	FillVectorThread.join();
+	FillVectorThread2.join();
 
-	myThreadClass.SimpleAbstractWork("Main");
-	ThreadObjectWithLambda.join();
-	ThreadObjectWithLambda2.join();
-	ThreadObjectWithLambda3.join();
+	EndClock = chrono::high_resolution_clock::now();
+	DurationClock = EndClock - StartClock;
+	printf("%f", DurationClock.count());
 
-	cout << endl << Result << endl;
-	cout << SecondResult << endl;
-
-
+	cout << endl;
+	//system("pause");
 
 	return 0;
 }
