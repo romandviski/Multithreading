@@ -7,8 +7,10 @@
 #include <ctime>
 #include <vector>
 
-#include <condition_variable>>
+#include <condition_variable>
 #include <random>
+
+#include <future>
 
 using namespace std;
 
@@ -186,8 +188,7 @@ void Produce(vector<int>& VectorToFill, mutex &locker)
 	}
 }
 
-int FutureValue1;
-void GenerateValue()
+int GenerateValue(int value)
 {
 	int i = 0;
 	while (i < 2)
@@ -196,48 +197,106 @@ void GenerateValue()
 		this_thread::sleep_for(chrono::milliseconds(1000));
 		i++;
 	}
-	FutureValue1 = GetRandomInRange(0, 100);
+	return GetRandomInRange(0, 100) + value;
+}
+
+void GetFutureValue(shared_future<int> myFuture)
+{
+	printf("\nGetFutureValue Thread - %d \n", myFuture.get());
+}
+
+void GenerateValueWithPromise(int value, promise<int> &promise)
+{
+	int i = 0;
+	while (i < 2)
+	{
+		printf("work GenerateValueWithPromise\n");
+		this_thread::sleep_for(chrono::milliseconds(1000));
+		i++;
+	}
+	promise.set_value(GetRandomInRange(0, 100) + value);
+}
+
+unsigned long long NonAtomicValue = 0;
+atomic<unsigned long long> AtomicValue = 0;
+
+void reWriteVariable(unsigned long long& value)
+{
+	int i = 0;
+	while(i < 100000)
+	{
+		value++;
+		i++;
+	}
+	cout << "Thread Finish" << endl;
+}
+
+void reWriteVariableAtomic(atomic<unsigned long long>& value)
+{
+	int i = 0;
+	while (i < 100000)
+	{
+		value++;
+		i++;
+	}
+	cout << "Atomic Thread Finish" << endl;
 }
 
 int main()
 {
-	//srand(static_cast<unsigned>(time(0))); //bad work in thread
+	packaged_task<int(int)> myTask(GenerateValue);
+	future<int> myFuture = myTask.get_future();
+	thread myThread(ref(myTask), 5);
+	myFuture.get();
 
-	vector<int> myVector;
-	vector<thread> threads;
+	promise<int> FuturePromise;
+	shared_future<int> SharedFuture = FuturePromise.get_future().share();
 
-	int SuccessConsumeCout = 0;
+	thread PromiseThread(GenerateValueWithPromise, 5, ref(FuturePromise));
 
-	mutex m;
-	mutex& lockerFormyVector = m;
 
-	for (int i = 0; i < 2; i++)
+	int FutureValue1 = 0;
+
+	//future<int> SimpleFuture1 = async(GenerateValue, 5);
+	shared_future<int> SimpleFuture1 = async(GenerateValue, 5);
+	//SimpleFuture1.valid();
+	//SimpleFuture1.wait();
+	//printf("\n FutureValue1 - %d", FutureValue1);
+
+	thread GetFutureValueThread(GetFutureValue, ref(SimpleFuture1));
+
+	int i = 0;
+	while (i < 3)
 	{
-		threads.push_back(thread([&]()
-		{
-			Produce(myVector, lockerFormyVector);
-		}));
+		printf("Work main \n");
+		this_thread::sleep_for(chrono::milliseconds(1100));
+		i++;
 	}
 
-	for (thread& t : threads)
-	{
-		t.detach();
-	}
-	thread ConsumeThread(Consume, ref(SuccessConsumeCout), ref(myVector), 5, ref(lockerFormyVector));
+	//FutureValue1 = SimpleFuture1.get();
+	//printf("\n FutureValue1 - %d \n", FutureValue1);
 
-	while (!EndConsume)
-	{
-		printf("%d ", SuccessConsumeCout);
+	GetFutureValueThread.join();
+	PromiseThread.join();
+	myThread.join();
 
-		this_thread::sleep_for(chrono::milliseconds(100));
-	}
+	thread myThread1(reWriteVariable, ref(NonAtomicValue));
+	thread myThread2(reWriteVariable, ref(NonAtomicValue));
+	thread myThread3(reWriteVariable, ref(NonAtomicValue));
+	myThread1.detach();
+	myThread2.detach();
+	myThread3.detach();
 
-	printf("\n");
-	printf("End work %d ", SuccessConsumeCout);
-	ConsumeThread.join();
+	thread myAtomicThread1(reWriteVariableAtomic, ref(AtomicValue));
+	thread myAtomicThread2(reWriteVariableAtomic, ref(AtomicValue));
+	thread myAtomicThread3(reWriteVariableAtomic, ref(AtomicValue));
+	myAtomicThread1.detach();
+	myAtomicThread2.detach();
+	myAtomicThread3.detach();
 
-	cout << endl;
-	//system("pause");
+	this_thread::sleep_for(chrono::milliseconds(1000));
+	cout << "Value ATOMIC - " << AtomicValue << endl;
+	cout << "Value nonATOMIC - " << NonAtomicValue << endl;
 
 	return 0;
 }
